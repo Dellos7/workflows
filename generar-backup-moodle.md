@@ -2,7 +2,7 @@
 description: Generar copia de seguridad de Moodle (.mbz) para Aules (Moodle 5.2)
 ---
 
-Cuando se ejecute este workflow, tu objetivo será generar un archivo de copia de seguridad de curso de Moodle (`.mbz`) compatible e importable directamente en la plataforma **Aules** (basada actualmente en **Moodle 5.2.1+**), a partir del contenido de una asignatura de la web [informatica-eso-bat](file:///c:/Users/David/Documents/informatica-eso-bat/informatica-eso-bat).
+Cuando se ejecute este workflow, tu objetivo será generar un archivo de copia de seguridad de curso de Moodle (`.mbz`) compatible e importable directamente en la plataforma **Aules** (basada actualmente en **Moodle 5.2.1+**), a partir del contenido de una asignatura de la web [informatica-eso-bat].
 
 ---
 
@@ -12,7 +12,7 @@ En esta sección se definen las reglas y el comportamiento estándar con el que 
 
 ### 1.1. Origen y Enlaces Web
 * **Web base**: Las asignaturas se alojan y consultan en `https://dlopezcastellote.dev/informatica-eso-bat`.
-* El código fuente de las asignaturas se encuentra en la carpeta [asignaturas/](file:///c:/Users/David/Documents/informatica-eso-bat/informatica-eso-bat/asignaturas) (por ejemplo: `asignaturas/digitalizacion`, `asignaturas/psiri`, etc.).
+* El código fuente de las asignaturas se encuentra en la carpeta [asignaturas/] (por ejemplo: `asignaturas/digitalizacion`, `asignaturas/psiri`, etc.).
 
 ### 1.2. Estructura de Secciones (Temas)
 * **Sección 0**: Cabecera general de Moodle (reservada para avisos/general).
@@ -51,7 +51,7 @@ En esta sección se definen las reglas y el comportamiento estándar con el que 
 * Si no se configuran grupos, las actividades se crean una única vez sin restricciones de disponibilidad.
 
 ### 1.5. Archivo de Configuración de Asignatura
-Dentro de la carpeta de la asignatura puede existir un archivo llamado `config_backup_moodle_<asignatura>.json` (o `config_backup_moodle.json`) para personalizar la copia:
+Dentro de la carpeta de la asignatura puede existir un archivo llamado `config_backup_moodle_<asignatura>.json` (o `config_backup_moodle.json`) para personalizar la copia. Ejemplo:
 ```json
 {
   "course": {
@@ -97,7 +97,7 @@ Cuando el usuario pida generar un backup (ej: *"genera el backup de digitalizaci
 ### Paso 3: Ejecutar el Generador de Backup
 Ejecutar el script generador mediante la herramienta de comandos:
 ```bash
-python c:\Users\David\Documents\informatica-eso-bat\.agents\workflows\scripts\generate_moodle_backup.py <ruta_asignatura>
+python scripts/generate_moodle_backup.py <ruta_asignatura>
 ```
 *(Opcionalmente especificar `--output <ruta_salida.mbz>` si se desea una ubicación distinta a `informatica-eso-bat/archivos/backup_moodle_<asignatura>.mbz`).*
 
