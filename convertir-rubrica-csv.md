@@ -2,6 +2,7 @@
 description: Convertir rúbrica markdown a CSV
 ---
 
+
 Cuando se ejecute este workflow, debes seguir de forma estricta las siguientes reglas. Tu objetivo será buscar en el archivo mencionado la rúbrica en Markdown (generalmente irá precedida de un título que dirá Rúbrica de lo que sea y estará al final del archivo .md mencionado) y generar la rúbrica en CSV, corrigiendo las partes que sean necesarias. Si se corrige algo, también debes corregirlo en el Markdown (archivo .md). Además, deberás generar el archivo .csv en la carpeta donde está el markdown mencionado con la rúbrica.
 
 ## 1. Validación previa obligatoria
@@ -120,7 +121,7 @@ La puntuación máxima de este criterio debe ser **2 puntos**.
 ## 7. Encabezado CSV que solemos utilizar
 
 ```csv
-criterion_name;level1_def;level1_score;level2_def;level2_score;level3_def;level3_score;level4_def;level4_score
+criterio;nivel1_def;nivel1_score;nivel2_def;nivel2_score;nivel3_def;nivel3_score;nivel4_def;nivel4_score
 ```
 
 ---
