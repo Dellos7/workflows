@@ -1,0 +1,111 @@
+---
+description: Generar copia de seguridad de Moodle (.mbz) para Aules (Moodle 5.2)
+---
+
+Cuando se ejecute este workflow, tu objetivo será generar un archivo de copia de seguridad de curso de Moodle (`.mbz`) compatible e importable directamente en la plataforma **Aules** (basada actualmente en **Moodle 5.2.1+**), a partir del contenido de una asignatura de la web [informatica-eso-bat](file:///c:/Users/David/Documents/informatica-eso-bat/informatica-eso-bat).
+
+---
+
+## 1. Especificación de la Copia de Seguridad
+
+En esta sección se definen las reglas y el comportamiento estándar con el que se construye el aula virtual de Moodle:
+
+### 1.1. Origen y Enlaces Web
+* **Web base**: Las asignaturas se alojan y consultan en `https://dlopezcastellote.dev/informatica-eso-bat`.
+* El código fuente de las asignaturas se encuentra en la carpeta [asignaturas/](file:///c:/Users/David/Documents/informatica-eso-bat/informatica-eso-bat/asignaturas) (por ejemplo: `asignaturas/digitalizacion`, `asignaturas/psiri`, etc.).
+
+### 1.2. Estructura de Secciones (Temas)
+* **Sección 0**: Cabecera general de Moodle (reservada para avisos/general).
+* **Sección 1 a N**: Cada tema de la asignatura ocupa exactamente una sección de Moodle.
+* **Botón web en cada sección**: Al inicio de cada sección/tema se añade un recurso tipo **Etiqueta (label)** con un botón estilizado centrado que abre el tema en la web:
+  ```html
+  <p style="text-align: center;">
+    <a style="display: inline-block; padding: 14px 28px; font-family: 'Segoe UI', Roboto, sans-serif; font-size: 16px; font-weight: 600; letter-spacing: 0.5px; color: #ffffff; background-color: #0076ff; text-decoration: none; border-radius: 8px; box-shadow: 0 4px 6px rgba(0, 118, 255, 0.2); transition: background-color 0.2s ease;"
+       href="https://dlopezcastellote.dev/informatica-eso-bat/asignaturas/{asignatura}/{tema}/" 
+       target="_blank" 
+       rel="noopener noreferrer">
+       TEMA {N} (WEB)
+    </a>
+  </p>
+  ```
+
+### 1.3. Estructura de Actividades (Tareas de Entrega)
+* Cada actividad detectada en la web se traduce a un recurso de Moodle de tipo **Tarea (`assign`)** donde el alumnado puede realizar entregas de archivos.
+* **Descripción de la tarea (`intro`)**: Consiste únicamente en un enlace directo a la actividad en la web:
+  ```html
+  <p><strong>➡️ACTIVIDAD</strong>: <a href="https://dlopezcastellote.dev/informatica-eso-bat/asignaturas/{asignatura}/{tema}/{actividad}/" target="_blank" rel="noopener">https://dlopezcastellote.dev/informatica-eso-bat/asignaturas/{asignatura}/{tema}/{actividad}/</a></p>
+  ```
+* **Configuración por defecto de la tarea**:
+  - Calificación máxima: `10`, calificación para aprobar: `5`.
+  - Envío de archivos activado (`assignsubmission_file` enabled=1).
+  - Número máximo de archivos subidos: `20`.
+  - Tamaño máximo de archivo: `50MB` (52428800 bytes).
+
+### 1.4. Gestión y Duplicación por Grupos (Clases)
+* Si una asignatura tiene varios grupos (por ejemplo en Digitalización: `DIG1` y `DIG2`):
+  - Cada grupo representa una clase distinta que puede tener ritmos o fechas límite de entrega diferentes.
+  - Las tareas se **duplican automáticamente** (una tarea para `DIG1` y otra para `DIG2`).
+  - Cada tarea duplicada incluye su condición de disponibilidad (`availability`) restringida exclusivamente a ese grupo:
+    `{"op":"&","c":[{"type":"group","id":<group_id>}],"showc":[true]}`.
+  - Los grupos quedan definidos en `groups.xml` y referenciados en `course/inforef.xml` para que Moodle cree los grupos al restaurar.
+* Si no se configuran grupos, las actividades se crean una única vez sin restricciones de disponibilidad.
+
+### 1.5. Archivo de Configuración de Asignatura
+Dentro de la carpeta de la asignatura puede existir un archivo llamado `config_backup_moodle_<asignatura>.json` (o `config_backup_moodle.json`) para personalizar la copia:
+```json
+{
+  "course": {
+    "fullname": "4ESO - Digitalización",
+    "shortname": "4ESO-DIG",
+    "idnumber": "4ESO_DIG_2025_26",
+    "summary": "Descripción opcional del curso"
+  },
+  "web_base_url": "https://dlopezcastellote.dev/informatica-eso-bat/asignaturas/digitalizacion",
+  "groups": [
+    { "id": 88658, "name": "DIG1" },
+    { "id": 88659, "name": "DIG2" }
+  ],
+  "duplicate_activities_per_group": true,
+  "topic_button": {
+    "style": "display: inline-block; padding: 14px 28px; font-family: 'Segoe UI', Roboto, sans-serif; font-size: 16px; font-weight: 600; letter-spacing: 0.5px; color: #ffffff; background-color: #0076ff; text-decoration: none; border-radius: 8px; box-shadow: 0 4px 6px rgba(0, 118, 255, 0.2); transition: background-color 0.2s ease;"
+  },
+  "topics": [
+    {
+      "folder": "sistemas-operativos",
+      "title": "Tema 1: Sistemas Operativos",
+      "button_text": "TEMA 1 (WEB)"
+    }
+  ]
+}
+```
+*Si `topics` no se define en el JSON, el generador autodescubre los temas leyendo el archivo `index.md` de la asignatura y las actividades escaneando las subcarpetas del tema.*
+
+---
+
+## 2. Instrucciones de Ejecución del Workflow
+
+Cuando el usuario pida generar un backup (ej: *"genera el backup de digitalizacion"* o proporcione una ruta de asignatura):
+
+### Paso 1: Identificar la Asignatura
+1. Determinar la ruta de la carpeta de la asignatura dentro de `informatica-eso-bat/asignaturas/` (ej. `digitalizacion`, `psiri`, `piari`, etc.).
+2. Si el usuario no especificó la asignatura o la ruta no existe, preguntar amablemente qué asignatura desea empaquetar.
+
+### Paso 2: Revisar o Crear el Archivo de Configuración
+1. Comprobar si existe `config_backup_moodle_<asignatura>.json` dentro de la carpeta de la asignatura.
+2. Si **no existe**, ofrecer crear uno con los datos deducidos de `index.md` o proceder con los valores por defecto (preguntando si existen grupos de clase específicos como DIG1, DIG2, etc.).
+
+### Paso 3: Ejecutar el Generador de Backup
+Ejecutar el script generador mediante la herramienta de comandos:
+```bash
+python c:\Users\David\Documents\informatica-eso-bat\.agents\workflows\scripts\generate_moodle_backup.py <ruta_asignatura>
+```
+*(Opcionalmente especificar `--output <ruta_salida.mbz>` si se desea una ubicación distinta a `informatica-eso-bat/archivos/backup_moodle_<asignatura>.mbz`).*
+
+### Paso 4: Validar y Notificar al Usuario
+1. Verificar que el comando terminó con código de salida `0` y que el archivo `.mbz` se ha generado correctamente.
+2. Comprobar el tamaño y el resumen de temas y actividades generadas.
+3. Informar al usuario de:
+   - Ruta completa del archivo `.mbz` generado listo para importar en Aules.
+   - Cantidad de temas/secciones creadas y enlaces web generados.
+   - Lista de actividades y si fueron duplicadas por grupos.
+   - Instrucciones breves de restauración en Aules (*Restaurar curso -> Subir archivo .mbz -> Restaurar como curso nuevo o fusionar*).
