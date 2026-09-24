@@ -219,7 +219,9 @@ def generate_mbz(subject_dir, config_path=None, output_mbz_path=None, web_base_u
     # Ruta de salida .mbz
     if not output_mbz_path:
         archivos_dir = subject_dir.parent.parent / "archivos"
-        if archivos_dir.exists():
+        if (archivos_dir / "backups").exists():
+            output_mbz_path = archivos_dir / "backups" / f"backup_moodle_{subject_slug}.mbz"
+        elif archivos_dir.exists():
             output_mbz_path = archivos_dir / f"backup_moodle_{subject_slug}.mbz"
         else:
             output_mbz_path = subject_dir / f"backup_moodle_{subject_slug}.mbz"
