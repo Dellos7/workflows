@@ -825,7 +825,7 @@ def generate_mbz(subject_dir, config_path=None, output_mbz_path=None, web_base_u
       <setting>
         <level>root</level>
         <name>blocks</name>
-        <value>0</value>
+        <value>1</value>
       </setting>
       <setting>
         <level>root</level>
@@ -845,12 +845,12 @@ def generate_mbz(subject_dir, config_path=None, output_mbz_path=None, web_base_u
       <setting>
         <level>root</level>
         <name>badges</name>
-        <value>0</value>
+        <value>1</value>
       </setting>
       <setting>
         <level>root</level>
         <name>calendarevents</name>
-        <value>0</value>
+        <value>1</value>
       </setting>
       <setting>
         <level>root</level>
@@ -885,7 +885,7 @@ def generate_mbz(subject_dir, config_path=None, output_mbz_path=None, web_base_u
       <setting>
         <level>root</level>
         <name>contentbankcontent</name>
-        <value>0</value>
+        <value>1</value>
       </setting>
       <setting>
         <level>root</level>
@@ -895,7 +895,7 @@ def generate_mbz(subject_dir, config_path=None, output_mbz_path=None, web_base_u
       <setting>
         <level>root</level>
         <name>legacyfiles</name>
-        <value>0</value>
+        <value>1</value>
       </setting>''')
 
         for sec in sections_data:
@@ -930,27 +930,6 @@ def generate_mbz(subject_dir, config_path=None, output_mbz_path=None, web_base_u
         mb_xml.append('    </settings>\n  </information>\n</moodle_backup>')
         (temp_dir / "moodle_backup.xml").write_text("\n".join(mb_xml), encoding="utf-8")
 
-        # Construir .ARCHIVE_INDEX
-        all_items = []
-        for root_p, dirs, files in os.walk(temp_dir):
-            rel_root = Path(root_p).relative_to(temp_dir)
-            for d in sorted(dirs):
-                rel_path = (rel_root / d).as_posix() + "/"
-                all_items.append((rel_path, "d", 0, "?"))
-            for f in sorted(files):
-                f_path = Path(root_p) / f
-                rel_path = (rel_root / f).as_posix()
-                size = f_path.stat().st_size
-                mtime = int(f_path.stat().st_mtime)
-                all_items.append((rel_path, "f", size, mtime))
-
-        index_lines = [f"Moodle archive file index. Count: {len(all_items)}"]
-        for path_str, kind, size, mtime in sorted(all_items, key=lambda x: x[0]):
-            index_lines.append(f"{path_str}\t{kind}\t{size}\t{mtime}")
-
-        index_content = "\n".join(index_lines) + "\n"
-        (temp_dir / ".ARCHIVE_INDEX").write_text(index_content, encoding="utf-8")
-
         # Validar todos los XML antes de empaquetar
         for root_p, _, files in os.walk(temp_dir):
             for f in files:
@@ -961,17 +940,51 @@ def generate_mbz(subject_dir, config_path=None, output_mbz_path=None, web_base_u
                     except Exception as ex:
                         raise ValueError(f"Error de sintaxis XML en {xml_path.name}: {ex}")
 
-        # Empaquetar en archivo .mbz (tar.gz) con .ARCHIVE_INDEX como primer elemento
-        output_mbz_path.parent.mkdir(parents=True, exist_ok=True)
-        with tarfile.open(output_mbz_path, "w:gz") as tar:
-            # 1. Cabecera .ARCHIVE_INDEX obligatoriamente primera
-            tar.add(temp_dir / ".ARCHIVE_INDEX", arcname=".ARCHIVE_INDEX")
-
-            # 2. Resto de archivos y carpetas
-            for item in sorted(temp_dir.iterdir()):
-                if item.name == ".ARCHIVE_INDEX":
+        # Construir .ARCHIVE_INDEX
+        all_items = []
+        for root_p, dirs, files in os.walk(temp_dir):
+            rel_root = Path(root_p).relative_to(temp_dir)
+            for d in sorted(dirs):
+                rel_path = (rel_root / d).as_posix() + "/"
+                all_items.append((rel_path, "d", 0, "?"))
+            for f in sorted(files):
+                if f == ".ARCHIVE_INDEX":
                     continue
-                tar.add(item, arcname=item.name)
+                f_path = Path(root_p) / f
+                rel_path = (rel_root / f).as_posix()
+                size = f_path.stat().st_size
+                mtime = int(f_path.stat().st_mtime)
+                all_items.append((rel_path, "f", size, mtime))
+
+        all_items.sort(key=lambda x: x[0])
+
+        index_lines = [f"Moodle archive file index. Count: {len(all_items)}"]
+        for path_str, kind, size, mtime in all_items:
+            index_lines.append(f"{path_str}\t{kind}\t{size}\t{mtime}")
+
+        index_content = "\n".join(index_lines) + "\n"
+        (temp_dir / ".ARCHIVE_INDEX").write_text(index_content, encoding="utf-8")
+
+        # Empaquetar en archivo .mbz (tar.gz) en formato POSIX USTAR estricto (sin @PaxHeader)
+        output_mbz_path.parent.mkdir(parents=True, exist_ok=True)
+
+        def tar_filter(ti):
+            ti.uid = 0
+            ti.gid = 0
+            ti.uname = ""
+            ti.gname = ""
+            ti.mtime = int(ti.mtime)
+            return ti
+
+        with tarfile.open(output_mbz_path, "w:gz", format=tarfile.USTAR_FORMAT) as tar:
+            # 1. Cabecera .ARCHIVE_INDEX obligatoriamente primera
+            tar.add(temp_dir / ".ARCHIVE_INDEX", arcname=".ARCHIVE_INDEX", filter=tar_filter)
+
+            # 2. Agregar cada elemento en el orden exacto del índice con recursive=False
+            for path_str, _, _, _ in all_items:
+                item_clean_name = path_str.rstrip("/")
+                local_path = temp_dir / item_clean_name
+                tar.add(local_path, arcname=item_clean_name, recursive=False, filter=tar_filter)
 
         print(f"\n[+] COPIA DE SEGURIDAD GENERADA CON ÉXITO:")
         print(f"    Ruta: {output_mbz_path}")
