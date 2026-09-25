@@ -250,11 +250,76 @@ def generate_mbz(subject_dir, config_path=None, output_mbz_path=None, web_base_u
 
         # Sección 0: General (Requerida en Moodle)
         sec0_id = 700000
+        sec0_sequence = []
+
+        general_config = config.get("general_section", {})
+        gen_activities = general_config.get("activities", [])
+
+        for g_act in gen_activities:
+            act_type = g_act.get("type", "label")
+            act_name = g_act.get("name", "Recurso")
+            act_visible = g_act.get("visible", 1)
+            cmid = next_cmid; next_cmid += 1
+            act_id = next_act_id; next_act_id += 1
+            ctx_id = next_context_id; next_context_id += 1
+
+            sec0_sequence.append(cmid)
+
+            if act_type == "label":
+                intro = g_act.get("content", g_act.get("intro", ""))
+                activities_data.append({
+                    "moduleid": cmid,
+                    "sectionid": sec0_id,
+                    "sectionnumber": 0,
+                    "modulename": "label",
+                    "title": act_name,
+                    "directory": f"activities/label_{cmid}",
+                    "instance_id": act_id,
+                    "contextid": ctx_id,
+                    "intro": intro,
+                    "visible": act_visible,
+                    "availability": "$@NULL@$"
+                })
+            elif act_type == "url":
+                external_url = g_act.get("external_url", g_act.get("url", ""))
+                intro = g_act.get("intro", "")
+                activities_data.append({
+                    "moduleid": cmid,
+                    "sectionid": sec0_id,
+                    "sectionnumber": 0,
+                    "modulename": "url",
+                    "title": act_name,
+                    "directory": f"activities/url_{cmid}",
+                    "instance_id": act_id,
+                    "contextid": ctx_id,
+                    "intro": intro,
+                    "externalurl": external_url,
+                    "visible": act_visible,
+                    "availability": "$@NULL@$"
+                })
+            elif act_type == "forum":
+                forum_type = g_act.get("forum_type", "news")
+                intro = g_act.get("intro", "Anuncis i notícies generals")
+                activities_data.append({
+                    "moduleid": cmid,
+                    "sectionid": sec0_id,
+                    "sectionnumber": 0,
+                    "modulename": "forum",
+                    "title": act_name,
+                    "directory": f"activities/forum_{cmid}",
+                    "instance_id": act_id,
+                    "contextid": ctx_id,
+                    "intro": intro,
+                    "forumtype": forum_type,
+                    "visible": act_visible,
+                    "availability": "$@NULL@$"
+                })
+
         sections_data.append({
             "id": sec0_id,
             "number": 0,
             "name": "$@NULL@$",
-            "sequence": [],
+            "sequence": sec0_sequence,
             "directory": f"sections/section_{sec0_id}"
         })
 
@@ -516,9 +581,9 @@ def generate_mbz(subject_dir, config_path=None, output_mbz_path=None, web_base_u
   <added>{now_ts}</added>
   <score>0</score>
   <indent>0</indent>
-  <visible>1</visible>
+  <visible>{act.get('visible', 1)}</visible>
   <visibleoncoursepage>1</visibleoncoursepage>
-  <visibleold>1</visibleold>
+  <visibleold>{act.get('visible', 1)}</visibleold>
   <groupmode>0</groupmode>
   <groupingid>0</groupingid>
   <completion>{2 if act['modulename'] == 'assign' else 0}</completion>
@@ -527,7 +592,7 @@ def generate_mbz(subject_dir, config_path=None, output_mbz_path=None, web_base_u
   <completionview>0</completionview>
   <completionexpected>0</completionexpected>
   <availability>{act['availability']}</availability>
-  <showdescription>1</showdescription>
+  <showdescription>{1 if act['modulename'] == 'label' else 0}</showdescription>
   <downloadcontent>1</downloadcontent>
   <lang></lang>
   <enableaitools>$@NULL@$</enableaitools>
@@ -552,6 +617,74 @@ def generate_mbz(subject_dir, config_path=None, output_mbz_path=None, web_base_u
     <timemodified>{now_ts}</timemodified>
   </label>
 </activity>''', encoding="utf-8")
+                (adir / "grades.xml").write_text('<?xml version="1.0" encoding="UTF-8"?>\n<activity_gradebook>\n  <grade_items>\n  </grade_items>\n  <grade_letters>\n  </grade_letters>\n</activity_gradebook>', encoding="utf-8")
+                (adir / "inforef.xml").write_text('<?xml version="1.0" encoding="UTF-8"?>\n<inforef>\n</inforef>', encoding="utf-8")
+
+            elif act["modulename"] == "url":
+                (adir / "url.xml").write_text(f'''<?xml version="1.0" encoding="UTF-8"?>
+<activity id="{act['instance_id']}" moduleid="{act['moduleid']}" modulename="url" contextid="{act['contextid']}">
+  <url id="{act['instance_id']}">
+    <name>{escape_xml(act['title'])}</name>
+    <intro>{escape_xml(act.get('intro', ''))}</intro>
+    <introformat>1</introformat>
+    <externalurl>{escape_xml(act.get('externalurl', ''))}</externalurl>
+    <display>5</display>
+    <displayoptions>a:0:{{}}</displayoptions>
+    <parameters>a:0:{{}}</parameters>
+    <timemodified>{now_ts}</timemodified>
+  </url>
+</activity>''', encoding="utf-8")
+                (adir / "grades.xml").write_text('<?xml version="1.0" encoding="UTF-8"?>\n<activity_gradebook>\n  <grade_items>\n  </grade_items>\n  <grade_letters>\n  </grade_letters>\n</activity_gradebook>', encoding="utf-8")
+                (adir / "inforef.xml").write_text('<?xml version="1.0" encoding="UTF-8"?>\n<inforef>\n</inforef>', encoding="utf-8")
+
+            elif act["modulename"] == "forum":
+                (adir / "forum.xml").write_text(f'''<?xml version="1.0" encoding="UTF-8"?>
+<activity id="{act['instance_id']}" moduleid="{act['moduleid']}" modulename="forum" contextid="{act['contextid']}">
+  <forum id="{act['instance_id']}">
+    <type>{act.get('forumtype', 'news')}</type>
+    <name>{escape_xml(act['title'])}</name>
+    <intro>{escape_xml(act.get('intro', ''))}</intro>
+    <introformat>1</introformat>
+    <duedate>0</duedate>
+    <cutoffdate>0</cutoffdate>
+    <assessed>0</assessed>
+    <assesstimestart>0</assesstimestart>
+    <assesstimefinish>0</assesstimefinish>
+    <scale>0</scale>
+    <maxbytes>0</maxbytes>
+    <maxattachments>1</maxattachments>
+    <forcesubscribe>1</forcesubscribe>
+    <trackingtype>1</trackingtype>
+    <rsstype>0</rsstype>
+    <rssarticles>0</rssarticles>
+    <timemodified>{now_ts}</timemodified>
+    <warnafter>0</warnafter>
+    <blockafter>0</blockafter>
+    <blockperiod>0</blockperiod>
+    <completiondiscussions>0</completiondiscussions>
+    <completionreplies>0</completionreplies>
+    <completionposts>0</completionposts>
+    <displaywordcount>0</displaywordcount>
+    <lockdiscussionafter>0</lockdiscussionafter>
+    <grade_forum>0</grade_forum>
+    <showimmediately>0</showimmediately>
+    <discussions>
+    </discussions>
+    <subscriptions>
+    </subscriptions>
+    <digests>
+    </digests>
+    <readposts>
+    </readposts>
+    <trackedprefs>
+    </trackedprefs>
+    <poststags>
+    </poststags>
+    <grades>
+    </grades>
+  </forum>
+</activity>''', encoding="utf-8")
+                (adir / "grading.xml").write_text('<?xml version="1.0" encoding="UTF-8"?>\n<areas>\n</areas>', encoding="utf-8")
                 (adir / "grades.xml").write_text('<?xml version="1.0" encoding="UTF-8"?>\n<activity_gradebook>\n  <grade_items>\n  </grade_items>\n  <grade_letters>\n  </grade_letters>\n</activity_gradebook>', encoding="utf-8")
                 (adir / "inforef.xml").write_text('<?xml version="1.0" encoding="UTF-8"?>\n<inforef>\n</inforef>', encoding="utf-8")
 

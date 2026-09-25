@@ -69,6 +69,31 @@ Dentro de la carpeta de la asignatura puede existir un archivo llamado `config_b
   "topic_button": {
     "style": "display: inline-block; padding: 14px 28px; font-family: 'Segoe UI', Roboto, sans-serif; font-size: 16px; font-weight: 600; letter-spacing: 0.5px; color: #ffffff; background-color: #0076ff; text-decoration: none; border-radius: 8px; box-shadow: 0 4px 6px rgba(0, 118, 255, 0.2); transition: background-color 0.2s ease;"
   },
+  "general_section": {
+    "activities": [
+      {
+        "type": "label",
+        "name": "Banner Asignatura",
+        "content": "<h3 style=\"text-align: center; color: blue\"><strong><img src=\"https://dlopezcastellote.dev/informatica-eso-bat/archivos/4ESO-DIGITALIZACION.png\" alt=\"4ESO DIGITALIZACIÓN\" width=\"999\" height=\"333\" role=\"presentation\" class=\"img-fluid atto_image_button_text-bottom\"></strong></h3>"
+      },
+      {
+        "type": "label",
+        "name": "Profesor y Contacto",
+        "content": "<table style=\"border-collapse: collapse; margin: 0 auto\">...</table>"
+      },
+      {
+        "type": "forum",
+        "name": "Avisos y noticias",
+        "intro": "Anuncis i notícies generals",
+        "forum_type": "news"
+      },
+      {
+        "type": "url",
+        "name": "Criterios de calificación",
+        "external_url": "https://dlopezcastellote.dev/informatica-eso-bat/archivos/Criterios-de-calificaci%C3%B3n-ESO-y-Bachillerato.pdf"
+      }
+    ]
+  },
   "topics": [
     {
       "folder": "sistemas-operativos",
