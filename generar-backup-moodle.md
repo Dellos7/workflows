@@ -40,6 +40,15 @@ En esta sección se definen las reglas y el comportamiento estándar con el que 
   - Envío de archivos activado (`assignsubmission_file` enabled=1).
   - Número máximo de archivos subidos: `20`.
   - Tamaño máximo de archivo: `50MB` (52428800 bytes).
+* **Importación automática de Rúbricas (`rubrica.csv`)**:
+  - Si en la carpeta de la actividad existe un archivo `rubrica.csv` (generado habitualmente con el workflow `/convertir-rubrica-csv`), el generador lo detecta y lo importa automáticamente.
+  - La tarea se configura en Moodle con **calificación avanzada por rúbrica** activa (`activemethod: rubric`, estado `Ready` / 20).
+  - Los criterios y niveles se trasladan con sus descripciones y puntuaciones exactas.
+  - Si la tarea está duplicada por grupos (ej. `DIG1` y `DIG2`), la rúbrica se asocia de forma independiente a cada una de las tareas creadas para que ambos grupos dispongan de la rúbrica de calificación.
+* **Mostrar descripción en la página del curso (`show_activity_description`)**:
+  - En Moodle, cada tarea dispone de la opción *"Muestra la descripción en la página del curso"* (`<showdescription>` en `module.xml`).
+  - Se puede configurar dentro de cada tema en la lista `topics` mediante `"show_activity_description": true` o `false` (por defecto es `false`, lo habitual para no sobrecargar visualmente el curso).
+  - También es posible definirlo a nivel raíz del JSON como valor global por defecto para todos los temas.
 
 ### 1.4. Gestión y Duplicación por Grupos (Clases)
 * Si una asignatura tiene varios grupos (por ejemplo en Digitalización: `DIG1` y `DIG2`):
@@ -98,7 +107,8 @@ Dentro de la carpeta de la asignatura puede existir un archivo llamado `config_b
     {
       "folder": "sistemas-operativos",
       "title": "Tema 1: Sistemas Operativos",
-      "button_text": "TEMA 1 (WEB)"
+      "button_text": "TEMA 1 (WEB)",
+      "show_activity_description": false
     }
   ]
 }

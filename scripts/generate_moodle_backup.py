@@ -39,6 +39,75 @@ def clean_markdown_title(title_text):
     t = re.sub(r'[*_~`]', '', t)
     return t.strip()
 
+def parse_rubric_csv(csv_path):
+    """
+    Parsea un archivo rubrica.csv siguiendo el formato de Moodle / convertir-rubrica-csv.
+    Retorna una lista de criterios con sus niveles:
+    [
+        {
+            "criterion": "1. Estructura de carpetas y Compresión",
+            "levels": [
+                {"score": 0.0, "definition": "..."},
+                {"score": 0.5, "definition": "..."},
+                ...
+            ]
+        },
+        ...
+    ]
+    """
+    import csv
+    criteria = []
+    try:
+        with open(csv_path, "r", encoding="utf-8-sig") as f:
+            sample = f.read(2048)
+            f.seek(0)
+            delimiter = ";" if ";" in sample else ","
+            reader = csv.reader(f, delimiter=delimiter)
+            header = next(reader, None)
+            if not header:
+                return []
+
+            for row in reader:
+                if not row or not any(cell.strip() for cell in row):
+                    continue
+                criterion_name = row[0].strip()
+                if not criterion_name:
+                    continue
+
+                levels = []
+                col = 1
+                while col < len(row):
+                    def_text = row[col].strip() if col < len(row) else ""
+                    score_str = row[col + 1].strip() if col + 1 < len(row) else ""
+                    col += 2
+
+                    if not def_text and not score_str:
+                        continue
+
+                    score_val = 0.0
+                    if score_str:
+                        try:
+                            score_val = float(score_str.replace(",", "."))
+                        except ValueError:
+                            score_val = 0.0
+
+                    levels.append({
+                        "score": score_val,
+                        "definition": def_text
+                    })
+
+                if levels:
+                    levels.sort(key=lambda l: l["score"])
+                    criteria.append({
+                        "criterion": criterion_name,
+                        "levels": levels
+                    })
+    except Exception as e:
+        print(f"[-] Advertencia al leer rúbrica {csv_path}: {e}", file=sys.stderr)
+        return []
+
+    return criteria
+
 def discover_subject_data(subject_dir, config, web_base_url):
     """
     Descubre o combina los temas y actividades a partir de la configuración
@@ -124,11 +193,49 @@ def discover_subject_data(subject_dir, config, web_base_url):
                                 act_t = h1.group(1).strip()
                         
                         act_url = f"{topic_url}/{item.name}/"
+
+                        # Buscar archivo de rúbrica en la carpeta de la actividad
+                        rubric_data = None
+                        for csv_cand in [item / "rubrica.csv", item / "rúbrica.csv", item / "Rubrica.csv", item / "Rúbrica.csv"]:
+                            if csv_cand.exists():
+                                rubric_data = parse_rubric_csv(csv_cand)
+                                break
+                        if not rubric_data:
+                            for f in item.glob("*.csv"):
+                                if "rubric" in f.name.lower() or "rúbric" in f.name.lower():
+                                    rubric_data = parse_rubric_csv(f)
+                                    break
+
                         topic_acts.append({
                             "folder": item.name,
                             "title": clean_markdown_title(act_t),
-                            "web_url": act_url
+                            "web_url": act_url,
+                            "rubric": rubric_data
                         })
+
+        # Si las actividades ya venían en la configuración, asegurar que buscan su rúbrica si no la tienen
+        if topic_acts and tdir and tdir.exists():
+            for act_item in topic_acts:
+                if not act_item.get("rubric"):
+                    act_folder = act_item.get("folder")
+                    if act_folder:
+                        af_path = tdir / act_folder
+                        if af_path.exists():
+                            for csv_cand in [af_path / "rubrica.csv", af_path / "rúbrica.csv", af_path / "Rubrica.csv", af_path / "Rúbrica.csv"]:
+                                if csv_cand.exists():
+                                    act_item["rubric"] = parse_rubric_csv(csv_cand)
+                                    break
+
+        # Parámetro para mostrar la descripción de las actividades en la página del curso
+        show_act_desc = t.get(
+            "show_activity_description",
+            t.get("show_activities_description",
+                  t.get("show_description",
+                        t.get("showdescription",
+                              t.get("mostrar_descripcion_actividades",
+                                    t.get("mostrar_descripcion",
+                                          config.get("show_activity_description", False))))))
+        )
 
         processed_topics.append({
             "section_number": sec_idx,
@@ -136,6 +243,7 @@ def discover_subject_data(subject_dir, config, web_base_url):
             "folder": folder_name,
             "web_url": topic_url,
             "button_text": t.get("button_text", f"TEMA {sec_idx} (WEB)"),
+            "show_activity_description": bool(show_act_desc),
             "activities": topic_acts or []
         })
 
@@ -242,6 +350,10 @@ def generate_mbz(subject_dir, config_path=None, output_mbz_path=None, web_base_u
         next_act_id = 1000001
         next_context_id = 5000001
         next_grade_item_id = 1400001
+        next_area_id = 1100001
+        next_definition_id = 100001
+        next_criterion_id = 500001
+        next_level_id = 2000001
         course_id = 130792
         course_context_id = 5592653
 
@@ -330,6 +442,7 @@ def generate_mbz(subject_dir, config_path=None, output_mbz_path=None, web_base_u
             sec_title = t["title"]
             topic_url = t["web_url"]
             btn_text = t.get("button_text", f"TEMA {sec_idx} (WEB)")
+            topic_show_desc = t.get("show_activity_description", False)
 
             sec_sequence = []
 
@@ -362,6 +475,9 @@ def generate_mbz(subject_dir, config_path=None, output_mbz_path=None, web_base_u
                 act_url = act.get("web_url") or f"{topic_url}/{act.get('folder', '')}/"
                 intro_html = f'<p><strong>➡️ACTIVIDAD</strong>: <a href="{act_url}" target="_blank" rel="noopener">{act_url}</a></p>'
 
+                act_show_desc = act.get("show_activity_description", act.get("show_description", topic_show_desc))
+                show_desc_int = 1 if act_show_desc else 0
+
                 for grp in target_groups:
                     assign_cmid = next_cmid; next_cmid += 1
                     assign_act_id = next_act_id; next_act_id += 1
@@ -391,7 +507,9 @@ def generate_mbz(subject_dir, config_path=None, output_mbz_path=None, web_base_u
                         "grade_item_id": grade_item_id,
                         "intro": intro_html,
                         "availability": avail_xml,
-                        "group": grp
+                        "group": grp,
+                        "rubric": act.get("rubric"),
+                        "showdescription": show_desc_int
                     })
 
             sections_data.append({
@@ -592,7 +710,7 @@ def generate_mbz(subject_dir, config_path=None, output_mbz_path=None, web_base_u
   <completionview>0</completionview>
   <completionexpected>0</completionexpected>
   <availability>{act['availability']}</availability>
-  <showdescription>{1 if act['modulename'] == 'label' else 0}</showdescription>
+  <showdescription>{1 if act['modulename'] == 'label' else act.get('showdescription', 0)}</showdescription>
   <downloadcontent>1</downloadcontent>
   <lang></lang>
   <enableaitools>$@NULL@$</enableaitools>
@@ -689,7 +807,69 @@ def generate_mbz(subject_dir, config_path=None, output_mbz_path=None, web_base_u
                 (adir / "inforef.xml").write_text('<?xml version="1.0" encoding="UTF-8"?>\n<inforef>\n</inforef>', encoding="utf-8")
 
             elif act["modulename"] == "assign":
-                (adir / "grading.xml").write_text('<?xml version="1.0" encoding="UTF-8"?>\n<areas>\n</areas>', encoding="utf-8")
+                rubric = act.get("rubric")
+                if rubric:
+                    area_id = next_area_id; next_area_id += 1
+                    def_id = next_definition_id; next_definition_id += 1
+                    rubric_title = f"Rúbrica - {act['title']}"
+
+                    crit_xml_list = []
+                    for c_idx, c in enumerate(rubric, start=1):
+                        crit_id = next_criterion_id; next_criterion_id += 1
+                        crit_desc = escape_xml(c["criterion"])
+
+                        lvl_xml_list = []
+                        for lvl in c["levels"]:
+                            lvl_id = next_level_id; next_level_id += 1
+                            lvl_score = f"{lvl['score']:.5f}"
+                            lvl_def = escape_xml(lvl["definition"])
+                            lvl_xml_list.append(f'''                <level id="{lvl_id}">
+                  <score>{lvl_score}</score>
+                  <definition>{lvl_def}</definition>
+                  <definitionformat>0</definitionformat>
+                </level>''')
+
+                        levels_block = "\n".join(lvl_xml_list)
+                        crit_xml_list.append(f'''            <criterion id="{crit_id}">
+              <sortorder>{c_idx}</sortorder>
+              <description>{crit_desc}</description>
+              <descriptionformat>0</descriptionformat>
+              <levels>
+{levels_block}
+              </levels>
+            </criterion>''')
+
+                    criteria_block = "\n".join(crit_xml_list)
+                    grading_content = f'''<?xml version="1.0" encoding="UTF-8"?>
+<areas>
+  <area id="{area_id}">
+    <areaname>submissions</areaname>
+    <activemethod>rubric</activemethod>
+    <definitions>
+      <definition id="{def_id}">
+        <method>rubric</method>
+        <name>{escape_xml(rubric_title)}</name>
+        <description></description>
+        <descriptionformat>1</descriptionformat>
+        <status>20</status>
+        <timecreated>{now_ts}</timecreated>
+        <timemodified>{now_ts}</timemodified>
+        <options>{{"sortlevelsasc":"1","lockzeropoints":"1","alwaysshowdefinition":"1","showdescriptionteacher":"1","showdescriptionstudent":"1","showscoreteacher":"1","showscorestudent":"1","enableremarks":"1","showremarksstudent":"1"}}</options>
+        <plugin_gradingform_rubric_definition>
+          <criteria>
+{criteria_block}
+          </criteria>
+        </plugin_gradingform_rubric_definition>
+        <instances>
+        </instances>
+      </definition>
+    </definitions>
+  </area>
+</areas>'''
+                    (adir / "grading.xml").write_text(grading_content, encoding="utf-8")
+                else:
+                    (adir / "grading.xml").write_text('<?xml version="1.0" encoding="UTF-8"?>\n<areas>\n</areas>', encoding="utf-8")
+
                 (adir / "inforef.xml").write_text(f'''<?xml version="1.0" encoding="UTF-8"?>
 <inforef>
   <grade_itemref>
@@ -1126,6 +1306,8 @@ def generate_mbz(subject_dir, config_path=None, output_mbz_path=None, web_base_u
         print(f"    Tamaño: {output_mbz_path.stat().st_size / 1024:.1f} KB")
         print(f"    Secciones (temas): {len(sections_data) - 1}")
         print(f"    Actividades creadas: {len(activities_data)}")
+        rubrics_count = sum(1 for a in activities_data if a.get("rubric"))
+        print(f"    Rúbricas aplicadas: {rubrics_count}")
         return output_mbz_path
 
     finally:
