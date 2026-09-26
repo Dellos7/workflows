@@ -16,9 +16,109 @@ import time
 import argparse
 import tarfile
 import shutil
+import hashlib
+import urllib.parse
+import urllib.request
+import mimetypes
 from pathlib import Path
 import xml.etree.ElementTree as ET
 import xml.sax.saxutils as saxutils
+
+def find_course_overview_image(subject_dir, config, temp_dir=None):
+    """
+    Localiza la imagen para 'Archivos del resumen del curso' (overviewfiles en Moodle).
+    Busca por orden:
+    1. Campo explícito en JSON ('course_image', 'course.course_image', 'course.image', 'overview_image', etc.)
+       Admite rutas relativas, absolutas o URLs web (http/https).
+    2. Etiqueta con <img> en la sección general (Banner)
+    3. Coincidencia por slug o nombre en archivos/imagenes/
+    """
+    subject_dir = Path(subject_dir).resolve()
+    repo_root = subject_dir.parent.parent  # informatica-eso-bat/
+    archivos_img_dir = repo_root / "archivos" / "imagenes"
+    archivos_dir = repo_root / "archivos"
+
+    course_obj = config.get("course", {}) if isinstance(config.get("course"), dict) else {}
+
+    # 1. Configuración explícita (en course o en la raíz del config)
+    explicit = (
+        config.get("course_image") or
+        course_obj.get("course_image") or
+        course_obj.get("image") or
+        config.get("overview_image") or
+        course_obj.get("overview_image") or
+        config.get("overview_file")
+    )
+
+    def resolve_candidate(cand_str):
+        if not cand_str or not isinstance(cand_str, str):
+            return None
+        cand_str = cand_str.strip()
+        if not cand_str:
+            return None
+
+        # Si es una URL http/https
+        if cand_str.lower().startswith(("http://", "https://")):
+            parsed = urllib.parse.urlparse(cand_str)
+            raw_path = urllib.parse.unquote(parsed.path)
+            fname = Path(raw_path).name
+            if fname:
+                for loc in [
+                    archivos_img_dir / fname,
+                    archivos_dir / fname,
+                    subject_dir / fname,
+                    repo_root / raw_path.lstrip("/\\")
+                ]:
+                    if loc.is_file():
+                        return loc
+            # Si no está localmente, intentar descargarla
+            try:
+                dest = (temp_dir / f"downloaded_overview_{fname}") if temp_dir else (archivos_img_dir / fname)
+                urllib.request.urlretrieve(cand_str, dest)
+                if dest.is_file() and dest.stat().st_size > 0:
+                    return dest
+            except Exception as e:
+                print(f"[!] Aviso: No se pudo descargar la imagen desde URL '{cand_str}': {e}")
+            return None
+
+        # Si es una ruta local
+        p = Path(cand_str)
+        if p.is_file():
+            return p
+        if (subject_dir / cand_str).is_file():
+            return subject_dir / cand_str
+        if (archivos_img_dir / p.name).is_file():
+            return archivos_img_dir / p.name
+        if (archivos_dir / p.name).is_file():
+            return archivos_dir / p.name
+        return None
+
+    resolved_explicit = resolve_candidate(explicit)
+    if resolved_explicit:
+        return resolved_explicit
+
+    # 2. Extraer del Banner en general_section.activities
+    for act in config.get("general_section", {}).get("activities", []):
+        content = act.get("content") or act.get("intro") or ""
+        m = re.search(r'<img[^>]+src=["\']([^"\']+)["\']', content, re.IGNORECASE)
+        if m:
+            img_src = m.group(1).strip()
+            res = resolve_candidate(img_src)
+            if res:
+                return res
+
+    # 3. Búsqueda por slug en archivos/imagenes
+    if archivos_img_dir.is_dir():
+        slug = subject_dir.name.lower()
+        for f in archivos_img_dir.iterdir():
+            if f.is_file() and f.suffix.lower() in ('.png', '.jpg', '.jpeg', '.webp'):
+                f_clean = f.stem.lower().replace("-", "").replace("_", "")
+                slug_clean = slug.replace("-", "").replace("_", "")
+                if slug_clean in f_clean or f_clean in slug_clean:
+                    return f
+
+    return None
+
 
 def escape_xml(text):
     """Escapa caracteres especiales para inclusión segura en XML."""
@@ -226,6 +326,25 @@ def discover_subject_data(subject_dir, config, web_base_url):
                                     act_item["rubric"] = parse_rubric_csv(csv_cand)
                                     break
 
+        # Parámetro para visibilidad del tema / sección
+        raw_sec_vis = t.get(
+            "visible",
+            t.get("section_visible",
+                  t.get("mostrar_seccion",
+                        t.get("mostrar_tema", True)))
+        )
+        sec_vis = False if raw_sec_vis in (0, False, "0", "false") else True
+
+        # Parámetro para visibilidad de las actividades del tema
+        raw_acts_vis = t.get(
+            "activities_visible",
+            t.get("activities_visibility",
+                  t.get("actividades_visibles",
+                        t.get("mostrar_actividades",
+                              config.get("activities_visible", True))))
+        )
+        acts_vis = False if raw_acts_vis in (0, False, "0", "false") else True
+
         # Parámetro para mostrar la descripción de las actividades en la página del curso
         show_act_desc = t.get(
             "show_activity_description",
@@ -244,6 +363,8 @@ def discover_subject_data(subject_dir, config, web_base_url):
             "web_url": topic_url,
             "button_text": t.get("button_text", f"TEMA {sec_idx} (WEB)"),
             "show_activity_description": bool(show_act_desc),
+            "visible": sec_vis,
+            "activities_visible": acts_vis,
             "activities": topic_acts or []
         })
 
@@ -324,19 +445,32 @@ def generate_mbz(subject_dir, config_path=None, output_mbz_path=None, web_base_u
     topics = discover_subject_data(subject_dir, config, web_base_url)
     print(f"[*] Se procesarán {len(topics)} temas.")
 
+    # Timestamp para fecha y hora de la copia
+    now_ts = int(time.time())
+    backup_date = now_ts
+    timestamp_str = time.strftime("%Y%m%d_%H%M%S", time.localtime(now_ts))
+
     # Ruta de salida .mbz
     if not output_mbz_path:
         archivos_dir = subject_dir.parent.parent / "archivos"
         if (archivos_dir / "backups").exists():
-            output_mbz_path = archivos_dir / "backups" / f"backup_moodle_{subject_slug}.mbz"
+            dest_dir = archivos_dir / "backups"
         elif archivos_dir.exists():
-            output_mbz_path = archivos_dir / f"backup_moodle_{subject_slug}.mbz"
+            dest_dir = archivos_dir
         else:
-            output_mbz_path = subject_dir / f"backup_moodle_{subject_slug}.mbz"
+            dest_dir = subject_dir
+        output_mbz_path = dest_dir / f"backup_moodle_{subject_slug}_{timestamp_str}.mbz"
+    else:
+        out_p = Path(output_mbz_path)
+        if out_p.is_dir() or str(output_mbz_path).endswith(("\\", "/")):
+            output_mbz_path = out_p / f"backup_moodle_{subject_slug}_{timestamp_str}.mbz"
+        else:
+            if out_p.suffix.lower() == ".mbz":
+                # Si ya termina en .mbz, añadir fecha y hora al final del nombre base antes de .mbz
+                output_mbz_path = out_p.with_name(f"{out_p.stem}_{timestamp_str}.mbz")
+            else:
+                output_mbz_path = out_p.with_name(f"{out_p.name}_{timestamp_str}.mbz")
     output_mbz_path = Path(output_mbz_path).resolve()
-
-    now_ts = int(time.time())
-    backup_date = now_ts
 
     # Directorio temporal de staging
     temp_dir = output_mbz_path.parent / f"_temp_moodle_build_{subject_slug}_{now_ts}"
@@ -354,6 +488,7 @@ def generate_mbz(subject_dir, config_path=None, output_mbz_path=None, web_base_u
         next_definition_id = 100001
         next_criterion_id = 500001
         next_level_id = 2000001
+        next_file_id = 6000001
         course_id = 130792
         course_context_id = 5592653
 
@@ -370,7 +505,8 @@ def generate_mbz(subject_dir, config_path=None, output_mbz_path=None, web_base_u
         for g_act in gen_activities:
             act_type = g_act.get("type", "label")
             act_name = g_act.get("name", "Recurso")
-            act_visible = g_act.get("visible", 1)
+            raw_act_vis = g_act.get("visible", 1)
+            act_visible = 0 if raw_act_vis in (0, False, "0", "false") else 1
             cmid = next_cmid; next_cmid += 1
             act_id = next_act_id; next_act_id += 1
             ctx_id = next_context_id; next_context_id += 1
@@ -469,6 +605,7 @@ def generate_mbz(subject_dir, config_path=None, output_mbz_path=None, web_base_u
 
             # 2. Crear las actividades de entrega (recurso Assign / Tarea)
             target_groups = groups if (duplicate_per_group and groups) else [None]
+            topic_acts_visible = t.get("activities_visible", True)
 
             for act in t["activities"]:
                 act_title = act["title"]
@@ -477,6 +614,9 @@ def generate_mbz(subject_dir, config_path=None, output_mbz_path=None, web_base_u
 
                 act_show_desc = act.get("show_activity_description", act.get("show_description", topic_show_desc))
                 show_desc_int = 1 if act_show_desc else 0
+
+                raw_act_vis = act.get("visible", topic_acts_visible)
+                act_vis_int = 0 if raw_act_vis in (0, False, "0", "false") else 1
 
                 for grp in target_groups:
                     assign_cmid = next_cmid; next_cmid += 1
@@ -509,15 +649,18 @@ def generate_mbz(subject_dir, config_path=None, output_mbz_path=None, web_base_u
                         "availability": avail_xml,
                         "group": grp,
                         "rubric": act.get("rubric"),
-                        "showdescription": show_desc_int
+                        "showdescription": show_desc_int,
+                        "visible": act_vis_int
                     })
 
+            sec_vis_int = 0 if t.get("visible", True) in (0, False, "0", "false") else 1
             sections_data.append({
                 "id": sec_id,
                 "number": sec_idx,
                 "name": sec_title,
                 "sequence": sec_sequence,
-                "directory": f"sections/section_{sec_id}"
+                "directory": f"sections/section_{sec_id}",
+                "visible": sec_vis_int
             })
 
         # Estructura de carpetas en staging
@@ -526,12 +669,92 @@ def generate_mbz(subject_dir, config_path=None, output_mbz_path=None, web_base_u
         (temp_dir / "course").mkdir()
         (temp_dir / "files").mkdir()
 
+        # Manejo de la imagen de resumen del curso (overviewfiles en Moodle)
+        overview_img_path = find_course_overview_image(subject_dir, config, temp_dir)
+        files_xml_entries = []
+        course_fileref_entries = []
+
+        if overview_img_path and overview_img_path.is_file():
+            img_bytes = overview_img_path.read_bytes()
+            img_hash = hashlib.sha1(img_bytes).hexdigest()
+            img_size = len(img_bytes)
+            img_name = overview_img_path.name
+            img_mime = mimetypes.guess_type(img_name)[0] or "image/png"
+
+            # Copiar archivo al directorio files/<hash[:2]>/<hash>
+            hash_sub = temp_dir / "files" / img_hash[:2]
+            hash_sub.mkdir(parents=True, exist_ok=True)
+            (hash_sub / img_hash).write_bytes(img_bytes)
+
+            file_id_img = next_file_id; next_file_id += 1
+            file_id_dot = next_file_id; next_file_id += 1
+
+            files_xml_entries.append(f'''  <file id="{file_id_img}">
+    <contenthash>{img_hash}</contenthash>
+    <contextid>{course_context_id}</contextid>
+    <component>course</component>
+    <filearea>overviewfiles</filearea>
+    <itemid>0</itemid>
+    <filepath>/</filepath>
+    <filename>{escape_xml(img_name)}</filename>
+    <userid>108277</userid>
+    <filesize>{img_size}</filesize>
+    <mimetype>{img_mime}</mimetype>
+    <status>0</status>
+    <timecreated>{now_ts}</timecreated>
+    <timemodified>{now_ts}</timemodified>
+    <source>{escape_xml(img_name)}</source>
+    <author>David López Castellote</author>
+    <license>unknown</license>
+    <sortorder>0</sortorder>
+    <repositorytype>$@NULL@$</repositorytype>
+    <repositoryid>$@NULL@$</repositoryid>
+    <reference>$@NULL@$</reference>
+  </file>''')
+
+            files_xml_entries.append(f'''  <file id="{file_id_dot}">
+    <contenthash>da39a3ee5e6b4b0d3255bfef95601890afd80709</contenthash>
+    <contextid>{course_context_id}</contextid>
+    <component>course</component>
+    <filearea>overviewfiles</filearea>
+    <itemid>0</itemid>
+    <filepath>/</filepath>
+    <filename>.</filename>
+    <userid>108277</userid>
+    <filesize>0</filesize>
+    <mimetype>$@NULL@$</mimetype>
+    <status>0</status>
+    <timecreated>{now_ts}</timecreated>
+    <timemodified>{now_ts}</timemodified>
+    <source>$@NULL@$</source>
+    <author>$@NULL@$</author>
+    <license>$@NULL@$</license>
+    <sortorder>0</sortorder>
+    <repositorytype>$@NULL@$</repositorytype>
+    <repositoryid>$@NULL@$</repositoryid>
+    <reference>$@NULL@$</reference>
+  </file>''')
+
+            course_fileref_entries.append(f'''  <fileref>
+    <file>
+      <id>{file_id_img}</id>
+    </file>
+    <file>
+      <id>{file_id_dot}</id>
+    </file>
+  </fileref>''')
+            print(f"[*] Imagen de resumen del curso configurada: {img_name} ({img_size / 1024:.1f} KB)")
+
         # Archivos XML de la raíz
         (temp_dir / "badges.xml").write_text('<?xml version="1.0" encoding="UTF-8"?>\n<badges>\n</badges>', encoding="utf-8")
         (temp_dir / "scales.xml").write_text('<?xml version="1.0" encoding="UTF-8"?>\n<scales_definition>\n</scales_definition>', encoding="utf-8")
         (temp_dir / "outcomes.xml").write_text('<?xml version="1.0" encoding="UTF-8"?>\n<outcomes_definition>\n</outcomes_definition>', encoding="utf-8")
         (temp_dir / "questions.xml").write_text('<?xml version="1.0" encoding="UTF-8"?>\n<question_categories>\n</question_categories>', encoding="utf-8")
-        (temp_dir / "files.xml").write_text('<?xml version="1.0" encoding="UTF-8"?>\n<files>\n</files>', encoding="utf-8")
+        if files_xml_entries:
+            files_xml_content = '<?xml version="1.0" encoding="UTF-8"?>\n<files>\n' + "\n".join(files_xml_entries) + "\n</files>"
+        else:
+            files_xml_content = '<?xml version="1.0" encoding="UTF-8"?>\n<files>\n</files>'
+        (temp_dir / "files.xml").write_text(files_xml_content, encoding="utf-8")
         (temp_dir / "moodle_backup.log").write_text("", encoding="utf-8")
 
         # roles.xml
@@ -604,7 +827,10 @@ def generate_mbz(subject_dir, config_path=None, output_mbz_path=None, web_base_u
         cinf = ['<?xml version="1.0" encoding="UTF-8"?>', '<inforef>', '  <groupref>']
         for g in groups:
             cinf.append(f'    <group>\n      <id>{g["id"]}</id>\n    </group>')
-        cinf.append('  </groupref>\n  <roleref>\n    <role>\n      <id>5</id>\n    </role>\n  </roleref>\n</inforef>')
+        cinf.append('  </groupref>\n  <roleref>\n    <role>\n      <id>5</id>\n    </role>\n  </roleref>')
+        if course_fileref_entries:
+            cinf.extend(course_fileref_entries)
+        cinf.append('</inforef>')
         (temp_dir / "course" / "inforef.xml").write_text("\n".join(cinf), encoding="utf-8")
 
         # course/course.xml
@@ -677,7 +903,7 @@ def generate_mbz(subject_dir, config_path=None, output_mbz_path=None, web_base_u
   <summary></summary>
   <summaryformat>1</summaryformat>
   <sequence>{seq_str}</sequence>
-  <visible>1</visible>
+  <visible>{sec.get('visible', 1)}</visible>
   <availabilityjson>$@NULL@$</availabilityjson>
   <component>$@NULL@$</component>
   <itemid>$@NULL@$</itemid>
@@ -1308,6 +1534,8 @@ def generate_mbz(subject_dir, config_path=None, output_mbz_path=None, web_base_u
         print(f"    Actividades creadas: {len(activities_data)}")
         rubrics_count = sum(1 for a in activities_data if a.get("rubric"))
         print(f"    Rúbricas aplicadas: {rubrics_count}")
+        if overview_img_path and overview_img_path.is_file():
+            print(f"    Imagen del curso (resumen): {overview_img_path.name}")
         return output_mbz_path
 
     finally:

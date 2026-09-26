@@ -49,6 +49,14 @@ En esta sección se definen las reglas y el comportamiento estándar con el que 
   - En Moodle, cada tarea dispone de la opción *"Muestra la descripción en la página del curso"* (`<showdescription>` en `module.xml`).
   - Se puede configurar dentro de cada tema en la lista `topics` mediante `"show_activity_description": true` o `false` (por defecto es `false`, lo habitual para no sobrecargar visualmente el curso).
   - También es posible definirlo a nivel raíz del JSON como valor global por defecto para todos los temas.
+* **Visibilidad de Secciones y Actividades (`visible` / `activities_visible`)**:
+  - **Ocultar un tema/sección completo**: En `topics`, `"visible": false` (o `0`) genera la sección oculta para el alumnado (`<visible>0</visible>` en `section.xml`).
+  - **Ocultar actividades por defecto en un tema**: En `topics`, `"activities_visible": false` (o `0`) hace que todas las tareas del tema se generen ocultas (`<visible>0</visible>` en `module.xml`). También puede definirse a nivel global en la raíz del JSON.
+  - **Ocultar una actividad específica**: Dentro de `activities` (tanto en la sección general como en un tema), `"visible": false` (o `0`) oculta esa actividad individualmente.
+* **Archivos del resumen del curso (`overviewfiles`)**:
+  - En la configuración del curso de Moodle, el campo *"Archivos del resumen del curso"* muestra la imagen del curso en el Dashboard / Área personal de los alumnos y profesores.
+  - El script localiza automáticamente la imagen del banner configurada en la sección general (o por convención en `archivos/imagenes/*.png`, o explícitamente en el JSON mediante `"course_image": "ruta/o/nombre.png"` dentro de `"course"` o en la raíz).
+  - La imagen se empaqueta con su hash SHA-1 en el pool de archivos de Moodle (`files/`) y se registra en `files.xml` y `course/inforef.xml` en el área `overviewfiles` del componente `course`.
 
 ### 1.4. Gestión y Duplicación por Grupos (Clases)
 * Si una asignatura tiene varios grupos (por ejemplo en Digitalización: `DIG1` y `DIG2`):
@@ -108,7 +116,15 @@ Dentro de la carpeta de la asignatura puede existir un archivo llamado `config_b
       "folder": "sistemas-operativos",
       "title": "Tema 1: Sistemas Operativos",
       "button_text": "TEMA 1 (WEB)",
-      "show_activity_description": false
+      "show_activity_description": false,
+      "visible": true,
+      "activities_visible": true
+    },
+    {
+      "folder": "documentos-digitales",
+      "title": "Tema 2: Documentos digitales",
+      "button_text": "TEMA 2 (WEB)",
+      "visible": false
     }
   ]
 }
@@ -134,7 +150,7 @@ Ejecutar el script generador mediante la herramienta de comandos:
 ```bash
 python scripts/generate_moodle_backup.py <ruta_asignatura>
 ```
-*(Opcionalmente especificar `--output <ruta_salida.mbz>` si se desea una ubicación distinta a `informatica-eso-bat/archivos/backup_moodle_<asignatura>.mbz`).*
+*(El archivo se generará automáticamente con fecha y hora: `informatica-eso-bat/archivos/backups/backup_moodle_<asignatura>_<YYYYMMDD_HHMMSS>.mbz`. Opcionalmente se puede especificar `--output <ruta_salida.mbz>`).*
 
 ### Paso 4: Validar y Notificar al Usuario
 1. Verificar que el comando terminó con código de salida `0` y que el archivo `.mbz` se ha generado correctamente.
